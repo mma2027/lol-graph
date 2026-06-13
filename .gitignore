@@ -1,0 +1,32 @@
+# Environment / secrets
+.env
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Graph exports
+*.graphml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
