@@ -13,7 +13,7 @@ that link many communities, or export the graph to Gephi for visualization.
    per game.
 2. **Graph** — A self-join on `game_participants` turns the SQLite data into a
    NetworkX graph (or a SQL-only BFS if the graph is too large to load).
-3. **Analyze** — Shortest paths, hub rankings, neighbor lookups, GraphML export.
+3. **Analyze** — Shortest paths, hub rankings, neighbor lookups, GEXF export for Gephi.
 
 ---
 
@@ -125,16 +125,23 @@ python main.py neighbors "SqfeWalk#NA1" --depth 2  # friends-of-friends
 
 Lists all players reachable within N hops, sorted by number of shared games.
 
-### 6. Export to GraphML (Gephi / yEd)
+### 6. Export to GEXF (Gephi)
 
 ```bash
-python main.py export                        # → lol_graph.graphml
-python main.py export --out my_graph.graphml
+python main.py export                             # → lol_graph.gexf
+python main.py export --out my_graph.gexf
+python main.py export --seed "SqfeWalk#NA1"       # seed node highlighted gold
 ```
 
-Exports the full graph with node labels (`GameName#TagLine`), tier, and LP as
-attributes. Open in [Gephi](https://gephi.org) and run ForceAtlas2 to see the
-cluster structure.
+Exports as GEXF — Gephi's native format. Node colors (light blue → dark navy
+based on game count), sizes, and the gold seed highlight are applied
+automatically on import. Open in [Gephi](https://gephi.org) and run ForceAtlas2
+to see the cluster structure.
+
+To download from a remote server:
+```bash
+scp user@host:/path/to/lol-graph/lol_graph.gexf ~/Downloads/lol_graph.gexf
+```
 
 ### 7. Reset
 
