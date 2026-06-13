@@ -24,12 +24,16 @@ find_neighbors(G, puuid, depth=1)        → set[str]
 from __future__ import annotations
 
 import sqlite3
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
 import networkx as nx
 
 import db
+
+_GRAPHML_NS = "http://graphml.graphdrawing.org/graphml"
+_VIZ_NS     = "http://www.gexf.net/1.2draft/viz"
 
 
 # ---------------------------------------------------------------------------
@@ -157,25 +161,102 @@ def graph_stats(G: nx.Graph) -> dict:
 # Export
 # ---------------------------------------------------------------------------
 
-def export_graphml(G: nx.Graph, path: str | Path) -> None:
+def _count_to_color(count: int, min_c: int, max_c: int) -> tuple[int, int, int]:
+    """Light steel blue → dark navy based on game count."""
+    t = (count - min_c) / max(max_c - min_c, 1)
+    r = int(173 + t * (10  - 173))
+    g = int(216 + t * (25  - 216))
+    b = int(230 + t * (80  - 230))
+    return r, g, b
+
+
+def export_graphml(
+    G: nx.Graph,
+    path: str | Path,
+    seed_puuid: Optional[str] = None,
+) -> None:
     """
     Write the graph to a GraphML file readable by Gephi / yEd.
-    Node attribute 'label' is set to 'GameName#TagLine' for display.
-    """
-    # GraphML requires string attributes; cast everything
-    H = nx.Graph()
-    for node, data in G.nodes(data=True):
-        label = f"{data.get('game_name', '')}#{data.get('tag_line', '')}"
-        H.add_node(
-            node,
-            label=label,
-            tier=str(data.get("tier", "")),
-            lp=str(data.get("lp", 0)),
-        )
-    for u, v, data in G.edges(data=True):
-        H.add_edge(u, v, weight=str(data.get("weight", 1)))
 
-    nx.write_graphml(H, str(path))
+    - Node color: light blue → dark navy based on number of games played.
+    - Seed node: gold (#FFD700).
+    - Node size: scales with game count (1–10).
+    - Edge weight: number of shared games.
+    """
+    # Game count per player
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT puuid, COUNT(*) AS cnt FROM game_participants GROUP BY puuid"
+        ).fetchall()
+    game_counts = {row["puuid"]: row["cnt"] for row in rows}
+
+    counts = list(game_counts.values()) or [1]
+    min_c  = min(counts)
+    max_c  = max(counts)
+
+    ET.register_namespace("",    _GRAPHML_NS)
+    ET.register_namespace("viz", _VIZ_NS)
+
+    G_el = ET.Element(f"{{{_GRAPHML_NS}}}graphml")
+
+    # Key declarations
+    _keys = [
+        ("label",   "label",   "string",  "node"),
+        ("tier",    "tier",    "string",  "node"),
+        ("lp",      "lp",      "int",     "node"),
+        ("games",   "games",   "int",     "node"),
+        ("is_seed", "is_seed", "boolean", "node"),
+        ("weight",  "weight",  "int",     "edge"),
+    ]
+    for kid, fname, ftype, ffor in _keys:
+        ET.SubElement(G_el, f"{{{_GRAPHML_NS}}}key", {
+            "id": kid, "for": ffor,
+            "attr.name": fname, "attr.type": ftype,
+        })
+
+    graph_el = ET.SubElement(G_el, f"{{{_GRAPHML_NS}}}graph", {
+        "id": "G", "edgedefault": "undirected",
+    })
+
+    # Nodes
+    for node, data in G.nodes(data=True):
+        n_el  = ET.SubElement(graph_el, f"{{{_GRAPHML_NS}}}node", id=str(node))
+        label = f"{data.get('game_name', '')}#{data.get('tag_line', '')}"
+        count = game_counts.get(node, 1)
+        is_seed = (node == seed_puuid)
+
+        for kid, val in [
+            ("label",   label),
+            ("tier",    str(data.get("tier", ""))),
+            ("lp",      str(data.get("lp", 0))),
+            ("games",   str(count)),
+            ("is_seed", "true" if is_seed else "false"),
+        ]:
+            d = ET.SubElement(n_el, f"{{{_GRAPHML_NS}}}data", key=kid)
+            d.text = val
+
+        if is_seed:
+            r, g, b = 255, 215, 0       # gold
+        else:
+            r, g, b = _count_to_color(count, min_c, max_c)
+
+        ET.SubElement(n_el, f"{{{_VIZ_NS}}}color",
+                      {"r": str(r), "g": str(g), "b": str(b), "a": "255"})
+
+        size = 1.0 + 9.0 * (count - min_c) / max(max_c - min_c, 1)
+        ET.SubElement(n_el, f"{{{_VIZ_NS}}}size", {"value": f"{size:.2f}"})
+
+    # Edges
+    for i, (u, v, data) in enumerate(G.edges(data=True)):
+        e_el = ET.SubElement(graph_el, f"{{{_GRAPHML_NS}}}edge", {
+            "id": f"e{i}", "source": str(u), "target": str(v),
+        })
+        d = ET.SubElement(e_el, f"{{{_GRAPHML_NS}}}data", key="weight")
+        d.text = str(data.get("weight", 1))
+
+    tree = ET.ElementTree(G_el)
+    ET.indent(tree, space="  ")
+    tree.write(str(path), encoding="utf-8", xml_declaration=True)
 
 
 # ---------------------------------------------------------------------------

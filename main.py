@@ -104,11 +104,19 @@ def cmd_neighbors(args: argparse.Namespace) -> None:
 
 
 def cmd_export(args: argparse.Namespace) -> None:
+    seed_puuid = None
+    if args.seed:
+        seed_puuid = analyzer._resolve_player(args.seed)
+        if not seed_puuid:
+            console.print(f"[yellow]Seed '{args.seed}' not found — exporting without highlight.[/yellow]")
+        else:
+            console.print(f"[cyan]Seed node: {args.seed} → will be gold[/cyan]")
+
     out = Path(args.out)
     console.print("[cyan]Building graph from database…[/cyan]")
     G = gph.build_graph()
     console.print(f"[cyan]Exporting to {out}…[/cyan]")
-    gph.export_graphml(G, out)
+    gph.export_graphml(G, out, seed_puuid=seed_puuid)
     console.print(f"[green]Saved: {out}[/green]")
     analyzer.print_graph_stats(G)
 
@@ -165,8 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     # export
     ep = sub.add_parser("export", help="Export graph to GraphML")
-    ep.add_argument("--out", metavar="FILE", default="lol_graph.graphml",
+    ep.add_argument("--out",  metavar="FILE",     default="lol_graph.graphml",
                     help="Output file (default: lol_graph.graphml)")
+    ep.add_argument("--seed", metavar="NAME#TAG",
+                    help="Highlight this player's node in gold")
 
     # reset
     sub.add_parser("reset", help="Wipe the database")
