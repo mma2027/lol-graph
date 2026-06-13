@@ -190,6 +190,16 @@ def insert_participants(match_id: str, participants: list[dict], db_path: Path =
             puuid = p.get("puuid", "")
             if not puuid or puuid == "BOT":
                 continue
+            # Insert player first (FK: game_participants.puuid → players.puuid)
+            game_name = p.get("riotIdGameName") or p.get("summonerName") or ""
+            tag_line  = p.get("riotIdTagline") or ""
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO players (puuid, game_name, tag_line, first_seen_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (puuid, game_name, tag_line, int(time.time() * 1000)),
+            )
             conn.execute(
                 """
                 INSERT OR IGNORE INTO game_participants
@@ -203,16 +213,6 @@ def insert_participants(match_id: str, participants: list[dict], db_path: Path =
                     p.get("championId"),
                     p.get("teamId"),
                 ),
-            )
-            # Ensure player row exists (name will be updated later if needed)
-            game_name = p.get("riotIdGameName") or p.get("summonerName") or ""
-            tag_line  = p.get("riotIdTagline") or ""
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO players (puuid, game_name, tag_line, first_seen_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (puuid, game_name, tag_line, int(time.time() * 1000)),
             )
 
 
