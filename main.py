@@ -173,8 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     # export
     ep = sub.add_parser("export", help="Export graph to GraphML")
-    ep.add_argument("--out",  metavar="FILE",     default="lol_graph.graphml",
-                    help="Output file (default: lol_graph.graphml)")
+    ep.add_argument("--out",  metavar="FILE",     default="lol_graph.gexf",
+                    help="Output file (default: lol_graph.gexf)")
     ep.add_argument("--seed", metavar="NAME#TAG",
                     help="Highlight this player's node in gold")
 

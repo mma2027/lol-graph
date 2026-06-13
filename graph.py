@@ -32,8 +32,8 @@ import networkx as nx
 
 import db
 
-_GRAPHML_NS = "http://graphml.graphdrawing.org/graphml"
-_VIZ_NS     = "http://www.gexf.net/1.2draft/viz"
+_GEXF_NS = "http://www.gexf.net/1.2draft"
+_VIZ_NS  = "http://www.gexf.net/1.2draft/viz"
 
 
 # ---------------------------------------------------------------------------
@@ -176,12 +176,15 @@ def export_graphml(
     seed_puuid: Optional[str] = None,
 ) -> None:
     """
-    Write the graph to a GraphML file readable by Gephi / yEd.
+    Write the graph as GEXF (Gephi's native format).
 
     - Node color: light blue → dark navy based on number of games played.
     - Seed node: gold (#FFD700).
     - Node size: scales with game count (1–10).
     - Edge weight: number of shared games.
+
+    Colors and sizes are applied automatically when opened in Gephi —
+    no manual Appearance configuration needed.
     """
     # Game count per player
     with db.get_connection() as conn:
@@ -194,49 +197,60 @@ def export_graphml(
     min_c  = min(counts)
     max_c  = max(counts)
 
-    ET.register_namespace("",    _GRAPHML_NS)
+    ET.register_namespace("",    _GEXF_NS)
     ET.register_namespace("viz", _VIZ_NS)
 
-    G_el = ET.Element(f"{{{_GRAPHML_NS}}}graphml")
+    root = ET.Element(f"{{{_GEXF_NS}}}gexf", {
+        "version": "1.2",
+        f"{{{_VIZ_NS}}}dummy": "",   # force xmlns:viz declaration on root
+    })
+    # Remove the dummy attribute we used to force the namespace declaration
+    del root.attrib[f"{{{_VIZ_NS}}}dummy"]
 
-    # Key declarations
-    _keys = [
-        ("label",   "label",   "string",  "node"),
-        ("tier",    "tier",    "string",  "node"),
-        ("lp",      "lp",      "int",     "node"),
-        ("games",   "games",   "int",     "node"),
-        ("is_seed", "is_seed", "boolean", "node"),
-        ("weight",  "weight",  "int",     "edge"),
-    ]
-    for kid, fname, ftype, ffor in _keys:
-        ET.SubElement(G_el, f"{{{_GRAPHML_NS}}}key", {
-            "id": kid, "for": ffor,
-            "attr.name": fname, "attr.type": ftype,
+    graph_el = ET.SubElement(root, f"{{{_GEXF_NS}}}graph", {
+        "mode": "static", "defaultedgetype": "undirected",
+    })
+
+    # Node attribute declarations
+    attrs_el = ET.SubElement(graph_el, f"{{{_GEXF_NS}}}attributes", {"class": "node"})
+    for aid, title, atype in [
+        ("0", "tier",    "string"),
+        ("1", "lp",      "integer"),
+        ("2", "games",   "integer"),
+        ("3", "is_seed", "boolean"),
+    ]:
+        ET.SubElement(attrs_el, f"{{{_GEXF_NS}}}attribute", {
+            "id": aid, "title": title, "type": atype,
         })
 
-    graph_el = ET.SubElement(G_el, f"{{{_GRAPHML_NS}}}graph", {
-        "id": "G", "edgedefault": "undirected",
+    # Edge attribute declarations
+    eattrs_el = ET.SubElement(graph_el, f"{{{_GEXF_NS}}}attributes", {"class": "edge"})
+    ET.SubElement(eattrs_el, f"{{{_GEXF_NS}}}attribute", {
+        "id": "0", "title": "shared_games", "type": "integer",
     })
 
     # Nodes
+    nodes_el = ET.SubElement(graph_el, f"{{{_GEXF_NS}}}nodes")
     for node, data in G.nodes(data=True):
-        n_el  = ET.SubElement(graph_el, f"{{{_GRAPHML_NS}}}node", id=str(node))
-        label = f"{data.get('game_name', '')}#{data.get('tag_line', '')}"
-        count = game_counts.get(node, 1)
+        label   = f"{data.get('game_name', '')}#{data.get('tag_line', '')}"
+        count   = game_counts.get(node, 1)
         is_seed = (node == seed_puuid)
 
-        for kid, val in [
-            ("label",   label),
-            ("tier",    str(data.get("tier", ""))),
-            ("lp",      str(data.get("lp", 0))),
-            ("games",   str(count)),
-            ("is_seed", "true" if is_seed else "false"),
+        n_el = ET.SubElement(nodes_el, f"{{{_GEXF_NS}}}node", {
+            "id": str(node), "label": label,
+        })
+
+        av_el = ET.SubElement(n_el, f"{{{_GEXF_NS}}}attvalues")
+        for aid, val in [
+            ("0", str(data.get("tier", ""))),
+            ("1", str(data.get("lp", 0))),
+            ("2", str(count)),
+            ("3", "true" if is_seed else "false"),
         ]:
-            d = ET.SubElement(n_el, f"{{{_GRAPHML_NS}}}data", key=kid)
-            d.text = val
+            ET.SubElement(av_el, f"{{{_GEXF_NS}}}attvalue", {"for": aid, "value": val})
 
         if is_seed:
-            r, g, b = 255, 215, 0       # gold
+            r, g, b = 255, 215, 0
         else:
             r, g, b = _count_to_color(count, min_c, max_c)
 
@@ -247,14 +261,17 @@ def export_graphml(
         ET.SubElement(n_el, f"{{{_VIZ_NS}}}size", {"value": f"{size:.2f}"})
 
     # Edges
+    edges_el = ET.SubElement(graph_el, f"{{{_GEXF_NS}}}edges")
     for i, (u, v, data) in enumerate(G.edges(data=True)):
-        e_el = ET.SubElement(graph_el, f"{{{_GRAPHML_NS}}}edge", {
-            "id": f"e{i}", "source": str(u), "target": str(v),
+        weight = data.get("weight", 1)
+        e_el = ET.SubElement(edges_el, f"{{{_GEXF_NS}}}edge", {
+            "id": str(i), "source": str(u), "target": str(v),
+            "weight": str(weight),
         })
-        d = ET.SubElement(e_el, f"{{{_GRAPHML_NS}}}data", key="weight")
-        d.text = str(data.get("weight", 1))
+        av_el = ET.SubElement(e_el, f"{{{_GEXF_NS}}}attvalues")
+        ET.SubElement(av_el, f"{{{_GEXF_NS}}}attvalue", {"for": "0", "value": str(weight)})
 
-    tree = ET.ElementTree(G_el)
+    tree = ET.ElementTree(root)
     ET.indent(tree, space="  ")
     tree.write(str(path), encoding="utf-8", xml_declaration=True)
 
